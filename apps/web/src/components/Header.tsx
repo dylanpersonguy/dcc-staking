@@ -6,6 +6,7 @@
 
 import { ConnectWallet } from './ConnectWallet';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 
 export function Header() {
   const pathname = usePathname();
@@ -22,9 +23,13 @@ export function Header() {
         {/* Logo */}
         <a href="/" className="flex items-center gap-3 group">
           <div className="relative">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-dcc-500 to-blue-400 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-dcc-500/20 group-hover:shadow-dcc-500/40 transition-shadow duration-300">
-              st
-            </div>
+            <Image
+              src="/dcc-logo.png"
+              alt="DCC"
+              width={36}
+              height={36}
+              className="rounded-xl shadow-lg shadow-dcc-500/20 group-hover:shadow-dcc-500/40 transition-shadow duration-300"
+            />
             <div className="absolute -inset-1 rounded-xl bg-gradient-to-br from-dcc-500 to-blue-400 opacity-0 group-hover:opacity-20 blur transition-opacity duration-300" />
           </div>
           <div className="flex flex-col">

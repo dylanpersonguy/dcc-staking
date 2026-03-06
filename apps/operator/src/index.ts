@@ -29,6 +29,7 @@ async function main() {
   const signer = new OperatorSigner(operatorSeed, chainId, nodeUrl);
 
   console.log(`[operator] Starting operator daemon`);
+  console.log(`[operator] Address: ${signer.getAddress()}`);
   console.log(`[operator] dApp: ${dAppAddress}`);
   console.log(`[operator] Node: ${nodeUrl}`);
   console.log(`[operator] Poll interval: ${pollInterval}ms`);
@@ -63,8 +64,7 @@ async function main() {
       console.log('[operator] Syncing rewards...');
       const rewardResult = await syncRewards(reader, signer, dAppAddress);
       if (rewardResult.txId) {
-        // Wait for tx confirmation before proceeding
-        await signer.getNodeClient().waitForTx(rewardResult.txId, 30_000);
+        console.log(`[operator] Rewards synced: txId=${rewardResult.txId}`);
       }
 
       // Step 3: Finalize eligible withdrawals
