@@ -28,8 +28,8 @@ export const TESTNET: NetworkConfig = {
 
 export const MAINNET: NetworkConfig = {
   name: 'mainnet',
-  nodeUrl: process.env.DCC_NODE_URL || 'https://node1.decentralchain.io',
-  chainId: 'D',
+  nodeUrl: process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io',
+  chainId: '?',
   dAppAddress: process.env.DAPP_ADDRESS || '',
   stDccAssetId: process.env.STDCC_ASSET_ID || '',
   explorerUrl: 'https://explorer.decentralchain.io',

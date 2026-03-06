@@ -30,7 +30,7 @@ const networkArg = args.find((a) => a.startsWith('--network='))?.split('=')[1]
 
 // Config from env
 const NODE_URL = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
-const CHAIN_ID = process.env.DCC_CHAIN_ID || 'W';
+const CHAIN_ID = process.env.DCC_CHAIN_ID || '?';
 const DAPP_SEED = process.env.DAPP_SEED || '';
 const PROTOCOL_FEE_BPS = parseInt(process.env.PROTOCOL_FEE_BPS || '1000', 10);
 
