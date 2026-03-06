@@ -145,7 +145,7 @@ async function deploy() {
       },
       payment: [],
       chainId: CHAIN_ID,
-      fee: 100_500_000, // 0.005 invoke + 1.0 issue fee for stDCC token
+      fee: 100_900_000, // invoke + issue fee + smart account extra fee
     },
     DAPP_SEED,
   );
