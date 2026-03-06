@@ -1,0 +1,33 @@
+{
+  "name": "dcc-liquid-staking",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DCC Liquid Staking Protocol — Monorepo",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "contracts/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "deploy:testnet": "ts-node scripts/deploy.ts --network testnet",
+    "deploy:mainnet": "ts-node scripts/deploy.ts --network mainnet",
+    "smoke-test": "ts-node scripts/smoke-test.ts",
+    "seed": "ts-node scripts/seed.ts"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.0",
+    "eslint": "^8.56.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "npm@10.2.0"
+}

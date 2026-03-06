@@ -1,0 +1,765 @@
+# ==============================================================================
+# DCC Liquid Staking Protocol — Main dApp Contract
+# ==============================================================================
+#
+# File: liquid_staking.ride
+# Chain: DecentralChain (Waves-derived, LPoS)
+# Model: Exchange-rate (shares) model, NOT rebasing
+#
+# Roles:
+#   admin    — full protocol management
+#   operator — finalize withdrawals, sync accounting
+#   guardian — emergency pause only (Phase 2)
+#   user     — deposit, requestWithdraw, claimWithdraw
+#
+# Phase 1: Single validator, manual reward sync, manual finalization
+#
+# Rounding Policy:
+#   - Deposits: shares rounded DOWN (protocol-favorable)
+#   - Withdrawals: DCC rounded DOWN (protocol-favorable)
+#   - Protocol is always slightly over-collateralized
+#
+# Decimals: DCC = 8, stDCC = 8
+# ==============================================================================
+
+{-# STDLIB_VERSION 6 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+
+let SEP = "__"
+let BPS_DENOM = 10000
+let MAX_FEE_BPS = 5000
+let ONE_DCC = 100_000_000  # 1 DCC in wavelets (8 decimals)
+
+# Withdrawal status codes
+let STATUS_PENDING   = 0
+let STATUS_FINALIZED = 1
+let STATUS_CLAIMED   = 2
+let STATUS_CANCELLED = 3
+
+# stDCC token config
+let STDCC_NAME     = "stDCC"
+let STDCC_DESC     = "DCC Liquid Staking receipt token"
+let STDCC_DECIMALS = 8
+
+# ==============================================================================
+# KEY HELPERS
+# ==============================================================================
+
+func keyAdmin()            = "admin"
+func keyOperator()         = "operator"
+func keyGuardian()         = "guardian"
+func keyPaused()           = "paused"
+func keyEmergencyMode()    = "emergency_mode"
+func keyStDccAssetId()     = "stdcc_asset_id"
+func keyTreasury()         = "treasury"
+func keyProtocolFeeBps()   = "protocol_fee_bps"
+func keyTotalPooledDcc()   = "total_pooled_dcc"
+func keyTotalShares()      = "total_shares"
+func keyTotalLeasedDcc()   = "total_leased_dcc"
+func keyTotalLiquidDcc()   = "total_liquid_dcc"
+func keyTotalClaimableDcc()         = "total_claimable_dcc"
+func keyTotalPendingWithdrawDcc()   = "total_pending_withdraw_dcc"
+func keyTotalProtocolFeesDcc()      = "total_protocol_fees_dcc"
+func keyValidatorCount()            = "validator_count"
+func keyWithdrawNonce()             = "withdraw_nonce"
+func keyLastRewardSyncHeight()      = "last_reward_sync_height"
+func keyLastRewardSyncTs()          = "last_reward_sync_ts"
+func keyMinDepositDcc()             = "min_deposit_dcc"
+func keyMinWithdrawShares()         = "min_withdraw_shares"
+
+# Validator keys
+func keyValExists(addr: String)        = "validator:" + addr + ":exists"
+func keyValEnabled(addr: String)       = "validator:" + addr + ":enabled"
+func keyValWeightBps(addr: String)     = "validator:" + addr + ":weight_bps"
+func keyValLeasedDcc(addr: String)     = "validator:" + addr + ":leased_dcc"
+func keyValLastLeaseId(addr: String)   = "validator:" + addr + ":last_lease_id"
+func keyValLastSyncHeight(addr: String)= "validator:" + addr + ":last_sync_height"
+func keyValIndex(n: Int)               = "validator_idx:" + toString(n)
+
+# User keys
+func keyUserSharesLocked(addr: String)   = "user:" + addr + ":shares_locked"
+func keyUserWithdrawCount(addr: String)   = "user:" + addr + ":withdraw_count"
+
+# Withdrawal request keys
+func keyWdOwner(id: String)       = "withdraw:" + id + ":owner"
+func keyWdShares(id: String)      = "withdraw:" + id + ":shares"
+func keyWdDccEstimate(id: String) = "withdraw:" + id + ":dcc_estimate"
+func keyWdDccFinal(id: String)    = "withdraw:" + id + ":dcc_final"
+func keyWdStatus(id: String)      = "withdraw:" + id + ":status"
+func keyWdCreatedAt(id: String)   = "withdraw:" + id + ":created_at"
+func keyWdFinalizedAt(id: String) = "withdraw:" + id + ":finalized_at"
+func keyWdClaimedAt(id: String)   = "withdraw:" + id + ":claimed_at"
+
+# ==============================================================================
+# STATE READER HELPERS
+# ==============================================================================
+
+func getStr(key: String)  = this.getString(key).valueOrElse("")
+func getInt(key: String)  = this.getInteger(key).valueOrElse(0)
+func getBool(key: String) = this.getBoolean(key).valueOrElse(false)
+
+func mustGetStr(key: String) = this.getString(key).valueOrErrorMessage("Missing: " + key)
+
+func totalPooledDcc() = getInt(keyTotalPooledDcc())
+func totalShares()    = getInt(keyTotalShares())
+func isPaused()       = getBool(keyPaused())
+func isEmergency()    = getBool(keyEmergencyMode())
+func adminAddr()      = getStr(keyAdmin())
+func operatorAddr()   = getStr(keyOperator())
+func guardianAddr()   = getStr(keyGuardian())
+
+func stDccAssetId() = {
+  let raw = mustGetStr(keyStDccAssetId())
+  raw.fromBase58String()
+}
+
+func minDepositDcc() = {
+  let v = getInt(keyMinDepositDcc())
+  if (v > 0) then v else ONE_DCC
+}
+
+func minWithdrawShares() = {
+  let v = getInt(keyMinWithdrawShares())
+  if (v > 0) then v else ONE_DCC
+}
+
+# ==============================================================================
+# MATH HELPERS
+# ==============================================================================
+
+# Floor division: a * b / denom, rounded down
+func mulDivDown(a: Int, b: Int, denom: Int) = {
+  if (denom == 0) then throw("mulDivDown: division by zero")
+  else {
+    let product = fraction(a, b, denom)
+    product
+  }
+}
+
+# Ceiling division: a * b / denom, rounded up
+func mulDivUp(a: Int, b: Int, denom: Int) = {
+  if (denom == 0) then throw("mulDivUp: division by zero")
+  else {
+    let product = fraction(a, b, denom)
+    let remainder = a * b - product * denom
+    if (remainder > 0) then product + 1 else product
+  }
+}
+
+# Calculate shares to mint for a deposit (round DOWN — protocol-favorable)
+func calcSharesFromDeposit(depositAmount: Int, pooledDcc: Int, shares: Int) = {
+  if (shares == 0 || pooledDcc == 0)
+    then depositAmount  # Bootstrap: 1:1
+    else mulDivDown(depositAmount, shares, pooledDcc)
+}
+
+# Calculate DCC redeemable for shares (round DOWN — protocol-favorable)
+func calcDccFromShares(userShares: Int, pooledDcc: Int, shares: Int) = {
+  if (shares == 0) then 0
+  else mulDivDown(userShares, pooledDcc, shares)
+}
+
+# ==============================================================================
+# ACCESS CONTROL HELPERS
+# ==============================================================================
+
+func requireAdmin(caller: Address) = {
+  let admin = adminAddr()
+  if (admin == "") then throw("Admin not configured")
+  else if (toBase58String(caller.bytes) != admin) then throw("Only admin")
+  else true
+}
+
+func requireOperator(caller: Address) = {
+  let op = operatorAddr()
+  if (op == "") then throw("Operator not configured")
+  else if (toBase58String(caller.bytes) != op) then throw("Only operator")
+  else true
+}
+
+func requireAdminOrOperator(caller: Address) = {
+  let callerStr = toBase58String(caller.bytes)
+  let admin = adminAddr()
+  let op = operatorAddr()
+  if (callerStr != admin && callerStr != op) then throw("Only admin or operator")
+  else true
+}
+
+func requireNotPaused() = {
+  if (isPaused()) then throw("Protocol is paused")
+  else true
+}
+
+func requireNotEmergency() = {
+  if (isEmergency()) then throw("Protocol is in emergency mode")
+  else true
+}
+
+func requireActive() = {
+  if (isPaused()) then throw("Protocol is paused")
+  else if (isEmergency()) then throw("Protocol is in emergency mode")
+  else true
+}
+
+# ==============================================================================
+# INITIALIZATION
+# ==============================================================================
+
+@Callable(i)
+func initialize(adminAddress: String, operatorAddress: String, treasuryAddress: String, feeBps: Int) = {
+  # Can only be called once: admin must not be set
+  let existingAdmin = getStr(keyAdmin())
+  if (existingAdmin != "") then throw("Already initialized")
+  else if (feeBps < 0 || feeBps > MAX_FEE_BPS) then throw("Invalid fee BPS")
+  else {
+    # Issue stDCC token
+    let issue = Issue(STDCC_NAME, STDCC_DESC, 0, STDCC_DECIMALS, true)
+    let assetId = calculateAssetId(issue)
+
+    [
+      issue,
+      StringEntry(keyAdmin(), adminAddress),
+      StringEntry(keyOperator(), operatorAddress),
+      StringEntry(keyTreasury(), treasuryAddress),
+      StringEntry(keyStDccAssetId(), toBase58String(assetId)),
+      IntegerEntry(keyProtocolFeeBps(), feeBps),
+      IntegerEntry(keyTotalPooledDcc(), 0),
+      IntegerEntry(keyTotalShares(), 0),
+      IntegerEntry(keyTotalLeasedDcc(), 0),
+      IntegerEntry(keyTotalLiquidDcc(), 0),
+      IntegerEntry(keyTotalClaimableDcc(), 0),
+      IntegerEntry(keyTotalPendingWithdrawDcc(), 0),
+      IntegerEntry(keyTotalProtocolFeesDcc(), 0),
+      IntegerEntry(keyValidatorCount(), 0),
+      IntegerEntry(keyWithdrawNonce(), 0),
+      IntegerEntry(keyLastRewardSyncHeight(), height),
+      IntegerEntry(keyLastRewardSyncTs(), lastBlock.timestamp),
+      IntegerEntry(keyMinDepositDcc(), ONE_DCC),
+      IntegerEntry(keyMinWithdrawShares(), ONE_DCC),
+      BooleanEntry(keyPaused(), false),
+      BooleanEntry(keyEmergencyMode(), false)
+    ]
+  }
+}
+
+# ==============================================================================
+# DEPOSIT
+# ==============================================================================
+
+@Callable(i)
+func deposit() = {
+  strict checks = requireActive()
+  let callerAddr = toBase58String(i.caller.bytes)
+
+  # Validate payment
+  if (size(i.payments) != 1) then throw("Exactly one payment required")
+  else {
+    let pmt = i.payments[0]
+    if (pmt.assetId != unit) then throw("Only DCC accepted")
+    else {
+      let depositAmount = pmt.amount
+      let minDeposit = minDepositDcc()
+      if (depositAmount < minDeposit) then throw("Deposit below minimum: " + toString(minDeposit))
+      else {
+        let curPooled = totalPooledDcc()
+        let curShares = totalShares()
+        let sharesToMint = calcSharesFromDeposit(depositAmount, curPooled, curShares)
+
+        if (sharesToMint <= 0) then throw("Deposit too small: zero shares")
+        else {
+          let assetId = stDccAssetId()
+          let newPooled = curPooled + depositAmount
+          let newShares = curShares + sharesToMint
+          let curLiquid = getInt(keyTotalLiquidDcc())
+
+          [
+            # Mint stDCC and send to depositor
+            Reissue(assetId, sharesToMint, true),
+            ScriptTransfer(i.caller, sharesToMint, assetId),
+
+            # Update global accounting
+            IntegerEntry(keyTotalPooledDcc(), newPooled),
+            IntegerEntry(keyTotalShares(), newShares),
+            IntegerEntry(keyTotalLiquidDcc(), curLiquid + depositAmount),
+
+            # Event for indexer
+            StringEntry(
+              "evt_deposit:" + toString(height) + ":" + toBase58String(i.transactionId),
+              callerAddr + "," + toString(depositAmount) + "," + toString(sharesToMint)
+            )
+          ]
+        }
+      }
+    }
+  }
+}
+
+# ==============================================================================
+# REQUEST WITHDRAWAL
+# ==============================================================================
+
+@Callable(i)
+func requestWithdraw() = {
+  strict checks = requireActive()
+  let callerAddr = toBase58String(i.caller.bytes)
+
+  # Validate stDCC payment
+  if (size(i.payments) != 1) then throw("Exactly one stDCC payment required")
+  else {
+    let pmt = i.payments[0]
+    let expectedAssetId = stDccAssetId()
+    if (pmt.assetId != expectedAssetId) then throw("Only stDCC accepted")
+    else {
+      let sharesToBurn = pmt.amount
+      let minShares = minWithdrawShares()
+      if (sharesToBurn < minShares) then throw("Withdrawal below minimum: " + toString(minShares))
+      else {
+        let curPooled = totalPooledDcc()
+        let curShares = totalShares()
+
+        if (sharesToBurn > curShares) then throw("Shares exceed total supply")
+        else {
+          # Estimate DCC at current exchange rate (round DOWN)
+          let dccEstimate = calcDccFromShares(sharesToBurn, curPooled, curShares)
+          if (dccEstimate <= 0) then throw("Withdrawal too small: zero DCC")
+          else {
+            # Generate unique withdrawal ID
+            let nonce = getInt(keyWithdrawNonce())
+            let requestId = toString(nonce + 1)
+
+            # Burn stDCC immediately
+            let newShares = curShares - sharesToBurn
+            let curPending = getInt(keyTotalPendingWithdrawDcc())
+            let userWdCount = getInt(keyUserWithdrawCount(callerAddr))
+
+            [
+              # Burn the stDCC shares
+              Burn(expectedAssetId, sharesToBurn),
+
+              # Update global accounting
+              IntegerEntry(keyTotalShares(), newShares),
+              IntegerEntry(keyTotalPendingWithdrawDcc(), curPending + dccEstimate),
+              IntegerEntry(keyWithdrawNonce(), nonce + 1),
+
+              # User accounting
+              IntegerEntry(keyUserWithdrawCount(callerAddr), userWdCount + 1),
+
+              # Withdrawal request data
+              StringEntry(keyWdOwner(requestId), callerAddr),
+              IntegerEntry(keyWdShares(requestId), sharesToBurn),
+              IntegerEntry(keyWdDccEstimate(requestId), dccEstimate),
+              IntegerEntry(keyWdDccFinal(requestId), 0),
+              IntegerEntry(keyWdStatus(requestId), STATUS_PENDING),
+              IntegerEntry(keyWdCreatedAt(requestId), height),
+              IntegerEntry(keyWdFinalizedAt(requestId), 0),
+              IntegerEntry(keyWdClaimedAt(requestId), 0),
+
+              # Event for indexer
+              StringEntry(
+                "evt_withdraw_req:" + toString(height) + ":" + toBase58String(i.transactionId),
+                callerAddr + "," + requestId + "," + toString(sharesToBurn) + "," + toString(dccEstimate)
+              )
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+
+# ==============================================================================
+# FINALIZE WITHDRAWAL (Operator only)
+# ==============================================================================
+
+@Callable(i)
+func finalizeWithdraw(requestId: String) = {
+  strict checks = requireAdminOrOperator(i.caller)
+
+  let status = getInt(keyWdStatus(requestId))
+  if (status != STATUS_PENDING) then throw("Request not pending: " + requestId)
+  else {
+    let dccEstimate = getInt(keyWdDccEstimate(requestId))
+    if (dccEstimate <= 0) then throw("Invalid estimate for request: " + requestId)
+    else {
+      # Check liquid balance is sufficient
+      let curLiquid = getInt(keyTotalLiquidDcc())
+      if (curLiquid < dccEstimate) then throw("Insufficient liquid DCC: " + toString(curLiquid) + " < " + toString(dccEstimate))
+      else {
+        let curPending = getInt(keyTotalPendingWithdrawDcc())
+        let curClaimable = getInt(keyTotalClaimableDcc())
+
+        [
+          # Mark finalized with final DCC amount
+          IntegerEntry(keyWdStatus(requestId), STATUS_FINALIZED),
+          IntegerEntry(keyWdDccFinal(requestId), dccEstimate),
+          IntegerEntry(keyWdFinalizedAt(requestId), height),
+
+          # Move from pending to claimable
+          IntegerEntry(keyTotalPendingWithdrawDcc(), curPending - dccEstimate),
+          IntegerEntry(keyTotalClaimableDcc(), curClaimable + dccEstimate),
+          IntegerEntry(keyTotalLiquidDcc(), curLiquid - dccEstimate),
+
+          # Event for indexer
+          StringEntry(
+            "evt_withdraw_fin:" + toString(height) + ":" + toBase58String(i.transactionId),
+            requestId + "," + toString(dccEstimate)
+          )
+        ]
+      }
+    }
+  }
+}
+
+# ==============================================================================
+# CLAIM WITHDRAWAL (Original requester only)
+# ==============================================================================
+
+@Callable(i)
+func claimWithdraw(requestId: String) = {
+  let callerAddr = toBase58String(i.caller.bytes)
+  let owner = getStr(keyWdOwner(requestId))
+
+  if (owner == "") then throw("Withdrawal request not found: " + requestId)
+  else if (owner != callerAddr) then throw("Not owner of request: " + requestId)
+  else {
+    let status = getInt(keyWdStatus(requestId))
+    if (status != STATUS_FINALIZED) then throw("Request not finalized: " + requestId)
+    else {
+      let dccFinal = getInt(keyWdDccFinal(requestId))
+      if (dccFinal <= 0) then throw("Invalid claim amount for request: " + requestId)
+      else {
+        let curClaimable = getInt(keyTotalClaimableDcc())
+        let curPooled = totalPooledDcc()
+
+        [
+          # Transfer DCC to claimant
+          ScriptTransfer(i.caller, dccFinal, unit),
+
+          # Mark claimed
+          IntegerEntry(keyWdStatus(requestId), STATUS_CLAIMED),
+          IntegerEntry(keyWdClaimedAt(requestId), height),
+
+          # Update accounting: reduce claimable and total pooled
+          IntegerEntry(keyTotalClaimableDcc(), curClaimable - dccFinal),
+          IntegerEntry(keyTotalPooledDcc(), curPooled - dccFinal),
+
+          # Event for indexer
+          StringEntry(
+            "evt_withdraw_claim:" + toString(height) + ":" + toBase58String(i.transactionId),
+            callerAddr + "," + requestId + "," + toString(dccFinal)
+          )
+        ]
+      }
+    }
+  }
+}
+
+# ==============================================================================
+# SYNC ACCOUNTING — Reward Detection (Admin/Operator only)
+# ==============================================================================
+# Called periodically to recognize staking rewards that have accrued.
+# The operator detects balance increases from LPoS rewards and reports
+# the reward amount. This increases totalPooledDcc, raising the exchange rate.
+#
+# SAFETY: This does NOT allow arbitrary state edits. It only allows
+# reporting positive reward growth with strict validation.
+
+@Callable(i)
+func syncRewards(rewardAmount: Int) = {
+  strict checks = requireAdminOrOperator(i.caller)
+  strict activeCheck = requireNotEmergency()
+
+  if (rewardAmount <= 0) then throw("Reward must be positive")
+  else {
+    let curPooled = totalPooledDcc()
+    let feeBps = getInt(keyProtocolFeeBps())
+    let feeAmount = if (feeBps > 0)
+      then mulDivDown(rewardAmount, feeBps, BPS_DENOM)
+      else 0
+
+    let netReward = rewardAmount - feeAmount
+    let newPooled = curPooled + netReward
+    let curFees = getInt(keyTotalProtocolFeesDcc())
+    let curLiquid = getInt(keyTotalLiquidDcc())
+
+    let treasuryAddr = getStr(keyTreasury())
+
+    # Distribute fee to treasury if set, otherwise accumulate
+    let feeActions = if (feeAmount > 0 && treasuryAddr != "")
+      then [
+        ScriptTransfer(Address(fromBase58String(treasuryAddr)), feeAmount, unit),
+        IntegerEntry(keyTotalProtocolFeesDcc(), curFees + feeAmount)
+      ]
+      else if (feeAmount > 0)
+      then [
+        IntegerEntry(keyTotalProtocolFeesDcc(), curFees + feeAmount)
+      ]
+      else []
+
+    feeActions ++ [
+      IntegerEntry(keyTotalPooledDcc(), newPooled),
+      IntegerEntry(keyTotalLiquidDcc(), curLiquid + netReward),
+      IntegerEntry(keyLastRewardSyncHeight(), height),
+      IntegerEntry(keyLastRewardSyncTs(), lastBlock.timestamp),
+
+      # Event for indexer
+      StringEntry(
+        "evt_reward_sync:" + toString(height) + ":" + toBase58String(i.transactionId),
+        toString(rewardAmount) + "," + toString(feeAmount) + "," + toString(netReward)
+      )
+    ]
+  }
+}
+
+# ==============================================================================
+# VALIDATOR MANAGEMENT (Admin only)
+# ==============================================================================
+
+@Callable(i)
+func addValidator(validatorAddress: String, weightBps: Int) = {
+  strict checks = requireAdmin(i.caller)
+
+  if (weightBps < 0 || weightBps > BPS_DENOM) then throw("Invalid weight BPS")
+  else {
+    let exists = getBool(keyValExists(validatorAddress))
+    if (exists) then throw("Validator already exists: " + validatorAddress)
+    else {
+      let count = getInt(keyValidatorCount())
+
+      [
+        BooleanEntry(keyValExists(validatorAddress), true),
+        BooleanEntry(keyValEnabled(validatorAddress), true),
+        IntegerEntry(keyValWeightBps(validatorAddress), weightBps),
+        IntegerEntry(keyValLeasedDcc(validatorAddress), 0),
+        StringEntry(keyValLastLeaseId(validatorAddress), ""),
+        IntegerEntry(keyValLastSyncHeight(validatorAddress), height),
+        StringEntry(keyValIndex(count), validatorAddress),
+        IntegerEntry(keyValidatorCount(), count + 1)
+      ]
+    }
+  }
+}
+
+@Callable(i)
+func updateValidator(validatorAddress: String, enabled: Boolean, weightBps: Int) = {
+  strict checks = requireAdmin(i.caller)
+
+  let exists = getBool(keyValExists(validatorAddress))
+  if (!exists) then throw("Validator not found: " + validatorAddress)
+  else if (weightBps < 0 || weightBps > BPS_DENOM) then throw("Invalid weight BPS")
+  else {
+    [
+      BooleanEntry(keyValEnabled(validatorAddress), enabled),
+      IntegerEntry(keyValWeightBps(validatorAddress), weightBps)
+    ]
+  }
+}
+
+@Callable(i)
+func removeValidator(validatorAddress: String) = {
+  strict checks = requireAdmin(i.caller)
+
+  let exists = getBool(keyValExists(validatorAddress))
+  if (!exists) then throw("Validator not found: " + validatorAddress)
+  else {
+    let leasedDcc = getInt(keyValLeasedDcc(validatorAddress))
+    if (leasedDcc > 0) then throw("Cannot remove validator with active leases: " + toString(leasedDcc))
+    else {
+      [
+        BooleanEntry(keyValExists(validatorAddress), false),
+        BooleanEntry(keyValEnabled(validatorAddress), false),
+        IntegerEntry(keyValWeightBps(validatorAddress), 0),
+        IntegerEntry(keyValLeasedDcc(validatorAddress), 0)
+      ]
+      # NOTE: We don't compact the validator index array to avoid O(n) shifts.
+      # Disabled validators with exists=false are skipped during enumeration.
+    }
+  }
+}
+
+# ==============================================================================
+# LEASE ACCOUNTING (Operator — records lease/cancel tx results)
+# ==============================================================================
+# The operator creates native Lease / LeaseCancel transactions externally,
+# then calls these functions to update on-chain accounting.
+
+@Callable(i)
+func recordLease(validatorAddress: String, amount: Int, leaseId: String) = {
+  strict checks = requireAdminOrOperator(i.caller)
+
+  let exists = getBool(keyValExists(validatorAddress))
+  if (!exists) then throw("Validator not found: " + validatorAddress)
+  else if (amount <= 0) then throw("Lease amount must be positive")
+  else {
+    let curValLeased = getInt(keyValLeasedDcc(validatorAddress))
+    let curTotalLeased = getInt(keyTotalLeasedDcc())
+    let curLiquid = getInt(keyTotalLiquidDcc())
+
+    if (curLiquid < amount) then throw("Insufficient liquid DCC for lease")
+    else {
+      [
+        IntegerEntry(keyValLeasedDcc(validatorAddress), curValLeased + amount),
+        StringEntry(keyValLastLeaseId(validatorAddress), leaseId),
+        IntegerEntry(keyTotalLeasedDcc(), curTotalLeased + amount),
+        IntegerEntry(keyTotalLiquidDcc(), curLiquid - amount)
+      ]
+    }
+  }
+}
+
+@Callable(i)
+func recordLeaseCancel(validatorAddress: String, amount: Int) = {
+  strict checks = requireAdminOrOperator(i.caller)
+
+  let exists = getBool(keyValExists(validatorAddress))
+  if (!exists) then throw("Validator not found: " + validatorAddress)
+  else if (amount <= 0) then throw("Cancel amount must be positive")
+  else {
+    let curValLeased = getInt(keyValLeasedDcc(validatorAddress))
+    if (amount > curValLeased) then throw("Cancel exceeds leased amount")
+    else {
+      let curTotalLeased = getInt(keyTotalLeasedDcc())
+      let curLiquid = getInt(keyTotalLiquidDcc())
+
+      [
+        IntegerEntry(keyValLeasedDcc(validatorAddress), curValLeased - amount),
+        IntegerEntry(keyTotalLeasedDcc(), curTotalLeased - amount),
+        IntegerEntry(keyTotalLiquidDcc(), curLiquid + amount),
+        StringEntry(keyValLastLeaseId(validatorAddress), "")
+      ]
+    }
+  }
+}
+
+# ==============================================================================
+# ADMIN FUNCTIONS
+# ==============================================================================
+
+@Callable(i)
+func setTreasury(newTreasury: String) = {
+  strict checks = requireAdmin(i.caller)
+  if (newTreasury == "") then throw("Treasury address cannot be empty")
+  else {
+    [StringEntry(keyTreasury(), newTreasury)]
+  }
+}
+
+@Callable(i)
+func setProtocolFeeBps(newFeeBps: Int) = {
+  strict checks = requireAdmin(i.caller)
+  if (newFeeBps < 0 || newFeeBps > MAX_FEE_BPS) then throw("Fee must be 0-" + toString(MAX_FEE_BPS))
+  else {
+    [IntegerEntry(keyProtocolFeeBps(), newFeeBps)]
+  }
+}
+
+@Callable(i)
+func setOperator(newOperator: String) = {
+  strict checks = requireAdmin(i.caller)
+  if (newOperator == "") then throw("Operator address cannot be empty")
+  else {
+    [StringEntry(keyOperator(), newOperator)]
+  }
+}
+
+@Callable(i)
+func setGuardian(newGuardian: String) = {
+  strict checks = requireAdmin(i.caller)
+  [StringEntry(keyGuardian(), newGuardian)]
+}
+
+@Callable(i)
+func setMinDeposit(amount: Int) = {
+  strict checks = requireAdmin(i.caller)
+  if (amount <= 0) then throw("Min deposit must be positive")
+  else {
+    [IntegerEntry(keyMinDepositDcc(), amount)]
+  }
+}
+
+@Callable(i)
+func setMinWithdrawShares(amount: Int) = {
+  strict checks = requireAdmin(i.caller)
+  if (amount <= 0) then throw("Min withdraw shares must be positive")
+  else {
+    [IntegerEntry(keyMinWithdrawShares(), amount)]
+  }
+}
+
+@Callable(i)
+func pause() = {
+  let callerStr = toBase58String(i.caller.bytes)
+  let admin = adminAddr()
+  let guardian = guardianAddr()
+
+  if (callerStr != admin && callerStr != guardian) then throw("Only admin or guardian")
+  else {
+    [BooleanEntry(keyPaused(), true)]
+  }
+}
+
+@Callable(i)
+func unpause() = {
+  strict checks = requireAdmin(i.caller)
+  [BooleanEntry(keyPaused(), false)]
+}
+
+@Callable(i)
+func emergencyMode(enable: Boolean) = {
+  strict checks = requireAdmin(i.caller)
+  [
+    BooleanEntry(keyEmergencyMode(), enable),
+    BooleanEntry(keyPaused(), enable)  # Emergency also pauses
+  ]
+}
+
+# ==============================================================================
+# ADMIN: Transfer admin role (two-step pattern would be Phase 2)
+# ==============================================================================
+
+@Callable(i)
+func transferAdmin(newAdmin: String) = {
+  strict checks = requireAdmin(i.caller)
+  if (newAdmin == "") then throw("New admin cannot be empty")
+  else {
+    [StringEntry(keyAdmin(), newAdmin)]
+  }
+}
+
+# ==============================================================================
+# READ-ONLY VIEWS (Callable for external read via InvokeScript)
+# ==============================================================================
+
+@Callable(i)
+func getExchangeRate() = {
+  let pooled = totalPooledDcc()
+  let shares = totalShares()
+  let rate = if (shares == 0) then ONE_DCC
+             else mulDivDown(ONE_DCC, pooled, shares)
+  ([], rate)
+}
+
+@Callable(i)
+func getProtocolStats() = {
+  let pooled = totalPooledDcc()
+  let shares = totalShares()
+  let rate = if (shares == 0) then ONE_DCC
+             else mulDivDown(ONE_DCC, pooled, shares)
+  ([], (pooled, shares, rate, getInt(keyTotalLeasedDcc()), getInt(keyTotalLiquidDcc()), getInt(keyTotalClaimableDcc()), getInt(keyTotalPendingWithdrawDcc())))
+}
+
+# ==============================================================================
+# VERIFIER — Allow all tx types from this account (needed for lease operations)
+# The dApp account needs to send Lease/LeaseCancel transactions.
+# Only allow if signed by the account itself.
+# ==============================================================================
+
+@Verifier(tx)
+func verify() = {
+  sigVerify(tx.bodyBytes, tx.proofs[0], tx.senderPublicKey)
+}
