@@ -5,6 +5,7 @@
 import type { Metadata } from 'next';
 import { Toaster } from 'react-hot-toast';
 import { Header } from '@/components/Header';
+import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-screen noise-overlay antialiased">
+        <Providers>
         <Header />
         <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           {children}
@@ -59,6 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             },
           }}
         />
+        </Providers>
       </body>
     </html>
   );
