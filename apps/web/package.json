@@ -11,18 +11,19 @@
   "dependencies": {
     "@dcc-staking/config": "*",
     "@dcc-staking/sdk": "*",
+    "@waves/waves-transactions": "^4.3.11",
     "next": "^14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.33",
-    "tailwindcss": "^3.4.1"
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.4.0"
   }
 }

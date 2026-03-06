@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ProtocolState, UserState, WithdrawalRequest } from '@dcc-staking/sdk';
 import { getReader, DAPP_ADDRESS } from '@/lib/protocol';
-import { WalletState, KeeperAdapter, isKeeperAvailable } from '@/lib/wallet';
+import { WalletState, KeeperAdapter, SeedAdapter, isKeeperAvailable } from '@/lib/wallet';
 
 // Demo state returned when no live node/dApp is reachable
 const DEMO_PROTOCOL_STATE: ProtocolState = {
@@ -41,20 +41,38 @@ const IS_DEMO = !DAPP_ADDRESS;
 // useWallet
 // =============================================================================
 
-const walletAdapter = typeof window !== 'undefined' ? new KeeperAdapter() : null;
+const keeperAdapter = typeof window !== 'undefined' ? new KeeperAdapter() : null;
+const seedAdapter = typeof window !== 'undefined' ? new SeedAdapter() : null;
 
 export function useWallet() {
   const [wallet, setWallet] = useState<WalletState | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adapterType, setAdapterType] = useState<'keeper' | 'seed' | null>(null);
 
   const connect = useCallback(async () => {
-    if (!walletAdapter) return;
+    if (!keeperAdapter) return;
     setConnecting(true);
     setError(null);
     try {
-      const state = await walletAdapter.connect();
+      const state = await keeperAdapter.connect();
       setWallet(state);
+      setAdapterType('keeper');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
+
+  const connectWithSeed = useCallback(async (seedPhrase: string) => {
+    if (!seedAdapter) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      const state = await seedAdapter.connectWithSeed(seedPhrase);
+      setWallet(state);
+      setAdapterType('seed');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -63,16 +81,26 @@ export function useWallet() {
   }, []);
 
   const disconnect = useCallback(() => {
-    walletAdapter?.disconnect();
+    if (adapterType === 'seed') {
+      seedAdapter?.disconnect();
+    } else {
+      keeperAdapter?.disconnect();
+    }
     setWallet(null);
-  }, []);
+    setAdapterType(null);
+  }, [adapterType]);
 
   const signAndBroadcast = useCallback(
     async (tx: any) => {
-      if (!walletAdapter) throw new Error('Wallet not available');
-      return walletAdapter.signAndBroadcast(tx);
+      if (adapterType === 'seed' && seedAdapter) {
+        return seedAdapter.signAndBroadcast(tx);
+      }
+      if (adapterType === 'keeper' && keeperAdapter) {
+        return keeperAdapter.signAndBroadcast(tx);
+      }
+      throw new Error('Wallet not connected');
     },
-    []
+    [adapterType]
   );
 
   return {
@@ -81,6 +109,7 @@ export function useWallet() {
     connecting,
     error,
     connect,
+    connectWithSeed,
     disconnect,
     signAndBroadcast,
     keeperAvailable: typeof window !== 'undefined' ? isKeeperAvailable() : false,

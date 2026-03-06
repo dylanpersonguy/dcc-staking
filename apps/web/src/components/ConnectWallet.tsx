@@ -4,12 +4,22 @@
 
 'use client';
 
+import { useState } from 'react';
 import { useWallet } from '@/hooks';
 import { shortenAddress } from '@/lib/format';
 
 export function ConnectWallet() {
-  const { wallet, connected, connecting, error, connect, disconnect, keeperAvailable } =
+  const { wallet, connected, connecting, error, connect, connectWithSeed, disconnect, keeperAvailable } =
     useWallet();
+  const [showSeedInput, setShowSeedInput] = useState(false);
+  const [seedPhrase, setSeedPhrase] = useState('');
+
+  const handleSeedConnect = async () => {
+    if (!seedPhrase.trim()) return;
+    await connectWithSeed(seedPhrase.trim());
+    setSeedPhrase('');
+    setShowSeedInput(false);
+  };
 
   if (connected && wallet) {
     return (
@@ -33,31 +43,52 @@ export function ConnectWallet() {
     );
   }
 
+  if (showSeedInput) {
+    return (
+      <div className="animate-fade-in">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={seedPhrase}
+              onChange={(e) => setSeedPhrase(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSeedConnect()}
+              placeholder="Enter seed phrase..."
+              className="rounded-xl bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-dcc-500/40 focus:outline-none focus:ring-1 focus:ring-dcc-500/20 transition-all w-56"
+              autoFocus
+            />
+            <button
+              onClick={handleSeedConnect}
+              disabled={connecting || !seedPhrase.trim()}
+              className="btn-primary text-sm !py-2 !px-4 disabled:opacity-40"
+            >
+              {connecting ? '...' : 'Go'}
+            </button>
+            <button
+              onClick={() => { setShowSeedInput(false); setSeedPhrase(''); }}
+              className="text-sm text-gray-500 hover:text-white transition-colors px-2"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        {error && <p className="mt-2 text-xs text-red-400 animate-fade-in">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <div>
-      <button
-        onClick={connect}
-        disabled={connecting}
-        className="btn-primary text-sm !py-2.5 !px-5"
-      >
-        {connecting ? (
-          <span className="flex items-center gap-2">
-            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Connecting…
-          </span>
-        ) : (
-          'Connect Wallet'
-        )}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowSeedInput(true)}
+          disabled={connecting}
+          className="btn-primary text-sm !py-2.5 !px-5"
+        >
+          Connect Wallet
+        </button>
+      </div>
       {error && <p className="mt-2 text-xs text-red-400 animate-fade-in">{error}</p>}
-      {!keeperAvailable && !connecting && (
-        <p className="mt-2 text-[10px] text-gray-600">
-          DCC Keeper not detected
-        </p>
-      )}
     </div>
   );
 }
