@@ -5,12 +5,12 @@
 
 import { ProtocolReader, TxBuilder, estimateDeposit, estimateWithdraw } from '@dcc-staking/sdk';
 
-const NODE_URL = process.env.NEXT_PUBLIC_DCC_NODE_URL || 'https://testnode1.decentralchain.io';
+const NODE_URL = process.env.NEXT_PUBLIC_DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
 const DAPP_ADDRESS = process.env.NEXT_PUBLIC_DAPP_ADDRESS || '';
 const STDCC_ASSET_ID = process.env.NEXT_PUBLIC_STDCC_ASSET_ID || '';
-const NETWORK = process.env.NEXT_PUBLIC_NETWORK || 'testnet';
+const NETWORK = process.env.NEXT_PUBLIC_NETWORK || 'mainnet';
 const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:3001';
-const CHAIN_ID = NETWORK === 'mainnet' ? 'D' : 'T';
+const CHAIN_ID = process.env.NEXT_PUBLIC_DCC_CHAIN_ID || (NETWORK === 'mainnet' ? 'W' : 'T');
 
 // Singleton reader
 let _reader: ProtocolReader | null = null;

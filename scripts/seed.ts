@@ -12,9 +12,9 @@
 
 require('dotenv').config();
 
-const NODE_URL = process.env.DCC_NODE_URL || 'https://testnode1.decentralchain.io';
+const NODE_URL = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
 const DAPP_ADDRESS = process.env.DAPP_ADDRESS || '';
-const CHAIN_ID = process.env.DCC_CHAIN_ID || 'T';
+const CHAIN_ID = process.env.DCC_CHAIN_ID || 'W';
 
 interface SeedConfig {
   nodeUrl: string;

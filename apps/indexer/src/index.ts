@@ -14,7 +14,7 @@ import { IndexerWorker } from './worker';
 import { createRouter } from './routes';
 
 async function main() {
-  const nodeUrl = process.env.DCC_NODE_URL || 'https://testnode1.decentralchain.io';
+  const nodeUrl = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
   const dAppAddress = process.env.DAPP_ADDRESS || '';
   const port = parseInt(process.env.INDEXER_PORT || '3001', 10);
   const pollInterval = parseInt(process.env.INDEXER_POLL_INTERVAL_MS || '5000', 10);

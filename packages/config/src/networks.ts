@@ -19,7 +19,7 @@ export interface NetworkConfig {
 
 export const TESTNET: NetworkConfig = {
   name: 'testnet',
-  nodeUrl: process.env.DCC_NODE_URL || 'https://testnode1.decentralchain.io',
+  nodeUrl: process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io',
   chainId: 'T',
   dAppAddress: process.env.DAPP_ADDRESS || '',
   stDccAssetId: process.env.STDCC_ASSET_ID || '',

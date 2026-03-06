@@ -14,9 +14,9 @@ import { finalizeWithdrawals } from './jobs/finalize-withdrawals';
 import { runSafetyChecks } from './jobs/safety-checks';
 
 async function main() {
-  const nodeUrl = process.env.DCC_NODE_URL || 'https://testnode1.decentralchain.io';
+  const nodeUrl = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
   const dAppAddress = process.env.DAPP_ADDRESS || '';
-  const chainId = process.env.DCC_CHAIN_ID || 'T';
+  const chainId = process.env.DCC_CHAIN_ID || 'W';
   const operatorSeed = process.env.OPERATOR_SEED || '';
   const pollInterval = parseInt(process.env.OPERATOR_POLL_INTERVAL_MS || '30000', 10);
 

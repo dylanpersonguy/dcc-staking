@@ -26,11 +26,11 @@ require('dotenv').config();
 const args = process.argv.slice(2);
 const skipInit = args.includes('--skip-init');
 const networkArg = args.find((a) => a.startsWith('--network='))?.split('=')[1]
-  || (args.indexOf('--network') !== -1 ? args[args.indexOf('--network') + 1] : 'testnet');
+  || (args.indexOf('--network') !== -1 ? args[args.indexOf('--network') + 1] : 'mainnet');
 
 // Config from env
-const NODE_URL = process.env.DCC_NODE_URL || 'https://nodes-testnet.wavesnodes.com';
-const CHAIN_ID = process.env.DCC_CHAIN_ID || 'T';
+const NODE_URL = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
+const CHAIN_ID = process.env.DCC_CHAIN_ID || 'W';
 const DAPP_SEED = process.env.DAPP_SEED || '';
 const PROTOCOL_FEE_BPS = parseInt(process.env.PROTOCOL_FEE_BPS || '1000', 10);
 
@@ -109,7 +109,7 @@ async function deploy() {
     {
       script: compiled.script,
       chainId: CHAIN_ID,
-      fee: 1800000, // Minimum for large RIDE scripts
+      fee: 1800000 + (compiled.extraFee || 0), // Base + extraFee from compilation
     },
     DAPP_SEED,
   );

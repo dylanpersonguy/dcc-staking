@@ -22,7 +22,7 @@
 # Decimals: DCC = 8, stDCC = 8
 # ==============================================================================
 
-{-# STDLIB_VERSION 6 #-}
+{-# STDLIB_VERSION 5 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
@@ -31,20 +31,20 @@
 # ==============================================================================
 
 let SEP = "__"
-let BPS_DENOM = 10000
-let MAX_FEE_BPS = 5000
-let ONE_DCC = 100_000_000  # 1 DCC in wavelets (8 decimals)
+let BPSDENOM = 10000
+let MAXFEEBPS = 5000
+let ONEDCC = 100000000  # 1 DCC in wavelets (8 decimals)
 
 # Withdrawal status codes
-let STATUS_PENDING   = 0
-let STATUS_FINALIZED = 1
-let STATUS_CLAIMED   = 2
-let STATUS_CANCELLED = 3
+let STATUSPENDING   = 0
+let STATUSFINALIZED = 1
+let STATUSCLAIMED   = 2
+let STATUSCANCELLED = 3
 
 # stDCC token config
-let STDCC_NAME     = "stDCC"
-let STDCC_DESC     = "DCC Liquid Staking receipt token"
-let STDCC_DECIMALS = 8
+let STDCCNAME     = "stDCC"
+let STDCCDESC     = "DCC Liquid Staking receipt token"
+let STDCCDECIMALS = 8
 
 # ==============================================================================
 # KEY HELPERS
@@ -120,12 +120,12 @@ func stDccAssetId() = {
 
 func minDepositDcc() = {
   let v = getInt(keyMinDepositDcc())
-  if (v > 0) then v else ONE_DCC
+  if (v > 0) then v else ONEDCC
 }
 
 func minWithdrawShares() = {
   let v = getInt(keyMinWithdrawShares())
-  if (v > 0) then v else ONE_DCC
+  if (v > 0) then v else ONEDCC
 }
 
 # ==============================================================================
@@ -215,10 +215,10 @@ func initialize(adminAddress: String, operatorAddress: String, treasuryAddress: 
   # Can only be called once: admin must not be set
   let existingAdmin = getStr(keyAdmin())
   if (existingAdmin != "") then throw("Already initialized")
-  else if (feeBps < 0 || feeBps > MAX_FEE_BPS) then throw("Invalid fee BPS")
+  else if (feeBps < 0 || feeBps > MAXFEEBPS) then throw("Invalid fee BPS")
   else {
     # Issue stDCC token
-    let issue = Issue(STDCC_NAME, STDCC_DESC, 0, STDCC_DECIMALS, true)
+    let issue = Issue(STDCCNAME, STDCCDESC, 0, STDCCDECIMALS, true)
     let assetId = calculateAssetId(issue)
 
     [
@@ -239,8 +239,8 @@ func initialize(adminAddress: String, operatorAddress: String, treasuryAddress: 
       IntegerEntry(keyWithdrawNonce(), 0),
       IntegerEntry(keyLastRewardSyncHeight(), height),
       IntegerEntry(keyLastRewardSyncTs(), lastBlock.timestamp),
-      IntegerEntry(keyMinDepositDcc(), ONE_DCC),
-      IntegerEntry(keyMinWithdrawShares(), ONE_DCC),
+      IntegerEntry(keyMinDepositDcc(), ONEDCC),
+      IntegerEntry(keyMinWithdrawShares(), ONEDCC),
       BooleanEntry(keyPaused(), false),
       BooleanEntry(keyEmergencyMode(), false)
     ]
@@ -354,7 +354,7 @@ func requestWithdraw() = {
               IntegerEntry(keyWdShares(requestId), sharesToBurn),
               IntegerEntry(keyWdDccEstimate(requestId), dccEstimate),
               IntegerEntry(keyWdDccFinal(requestId), 0),
-              IntegerEntry(keyWdStatus(requestId), STATUS_PENDING),
+              IntegerEntry(keyWdStatus(requestId), STATUSPENDING),
               IntegerEntry(keyWdCreatedAt(requestId), height),
               IntegerEntry(keyWdFinalizedAt(requestId), 0),
               IntegerEntry(keyWdClaimedAt(requestId), 0),
@@ -381,7 +381,7 @@ func finalizeWithdraw(requestId: String) = {
   strict checks = requireAdminOrOperator(i.caller)
 
   let status = getInt(keyWdStatus(requestId))
-  if (status != STATUS_PENDING) then throw("Request not pending: " + requestId)
+  if (status != STATUSPENDING) then throw("Request not pending: " + requestId)
   else {
     let dccEstimate = getInt(keyWdDccEstimate(requestId))
     if (dccEstimate <= 0) then throw("Invalid estimate for request: " + requestId)
@@ -395,7 +395,7 @@ func finalizeWithdraw(requestId: String) = {
 
         [
           # Mark finalized with final DCC amount
-          IntegerEntry(keyWdStatus(requestId), STATUS_FINALIZED),
+          IntegerEntry(keyWdStatus(requestId), STATUSFINALIZED),
           IntegerEntry(keyWdDccFinal(requestId), dccEstimate),
           IntegerEntry(keyWdFinalizedAt(requestId), height),
 
@@ -428,7 +428,7 @@ func claimWithdraw(requestId: String) = {
   else if (owner != callerAddr) then throw("Not owner of request: " + requestId)
   else {
     let status = getInt(keyWdStatus(requestId))
-    if (status != STATUS_FINALIZED) then throw("Request not finalized: " + requestId)
+    if (status != STATUSFINALIZED) then throw("Request not finalized: " + requestId)
     else {
       let dccFinal = getInt(keyWdDccFinal(requestId))
       if (dccFinal <= 0) then throw("Invalid claim amount for request: " + requestId)
@@ -441,7 +441,7 @@ func claimWithdraw(requestId: String) = {
           ScriptTransfer(i.caller, dccFinal, unit),
 
           # Mark claimed
-          IntegerEntry(keyWdStatus(requestId), STATUS_CLAIMED),
+          IntegerEntry(keyWdStatus(requestId), STATUSCLAIMED),
           IntegerEntry(keyWdClaimedAt(requestId), height),
 
           # Update accounting: reduce claimable and total pooled
@@ -479,7 +479,7 @@ func syncRewards(rewardAmount: Int) = {
     let curPooled = totalPooledDcc()
     let feeBps = getInt(keyProtocolFeeBps())
     let feeAmount = if (feeBps > 0)
-      then mulDivDown(rewardAmount, feeBps, BPS_DENOM)
+      then mulDivDown(rewardAmount, feeBps, BPSDENOM)
       else 0
 
     let netReward = rewardAmount - feeAmount
@@ -524,7 +524,7 @@ func syncRewards(rewardAmount: Int) = {
 func addValidator(validatorAddress: String, weightBps: Int) = {
   strict checks = requireAdmin(i.caller)
 
-  if (weightBps < 0 || weightBps > BPS_DENOM) then throw("Invalid weight BPS")
+  if (weightBps < 0 || weightBps > BPSDENOM) then throw("Invalid weight BPS")
   else {
     let exists = getBool(keyValExists(validatorAddress))
     if (exists) then throw("Validator already exists: " + validatorAddress)
@@ -551,7 +551,7 @@ func updateValidator(validatorAddress: String, enabled: Boolean, weightBps: Int)
 
   let exists = getBool(keyValExists(validatorAddress))
   if (!exists) then throw("Validator not found: " + validatorAddress)
-  else if (weightBps < 0 || weightBps > BPS_DENOM) then throw("Invalid weight BPS")
+  else if (weightBps < 0 || weightBps > BPSDENOM) then throw("Invalid weight BPS")
   else {
     [
       BooleanEntry(keyValEnabled(validatorAddress), enabled),
@@ -652,7 +652,7 @@ func setTreasury(newTreasury: String) = {
 @Callable(i)
 func setProtocolFeeBps(newFeeBps: Int) = {
   strict checks = requireAdmin(i.caller)
-  if (newFeeBps < 0 || newFeeBps > MAX_FEE_BPS) then throw("Fee must be 0-" + toString(MAX_FEE_BPS))
+  if (newFeeBps < 0 || newFeeBps > MAXFEEBPS) then throw("Fee must be 0-" + toString(MAXFEEBPS))
   else {
     [IntegerEntry(keyProtocolFeeBps(), newFeeBps)]
   }
@@ -739,8 +739,8 @@ func transferAdmin(newAdmin: String) = {
 func getExchangeRate() = {
   let pooled = totalPooledDcc()
   let shares = totalShares()
-  let rate = if (shares == 0) then ONE_DCC
-             else mulDivDown(ONE_DCC, pooled, shares)
+  let rate = if (shares == 0) then ONEDCC
+             else mulDivDown(ONEDCC, pooled, shares)
   ([], rate)
 }
 
@@ -748,8 +748,8 @@ func getExchangeRate() = {
 func getProtocolStats() = {
   let pooled = totalPooledDcc()
   let shares = totalShares()
-  let rate = if (shares == 0) then ONE_DCC
-             else mulDivDown(ONE_DCC, pooled, shares)
+  let rate = if (shares == 0) then ONEDCC
+             else mulDivDown(ONEDCC, pooled, shares)
   ([], (pooled, shares, rate, getInt(keyTotalLeasedDcc()), getInt(keyTotalLiquidDcc()), getInt(keyTotalClaimableDcc()), getInt(keyTotalPendingWithdrawDcc())))
 }
 
