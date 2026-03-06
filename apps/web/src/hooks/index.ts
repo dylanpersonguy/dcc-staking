@@ -6,8 +6,36 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ProtocolState, UserState, WithdrawalRequest } from '@dcc-staking/sdk';
-import { getReader } from '@/lib/protocol';
+import { getReader, DAPP_ADDRESS } from '@/lib/protocol';
 import { WalletState, KeeperAdapter, isKeeperAvailable } from '@/lib/wallet';
+
+// Demo state returned when no live node/dApp is reachable
+const DEMO_PROTOCOL_STATE: ProtocolState = {
+  admin: '3N_demo_admin',
+  operator: '3N_demo_operator',
+  guardian: '',
+  paused: false,
+  emergencyMode: false,
+  stDccAssetId: 'DEMO_STDCC_ASSET_ID',
+  treasury: '3N_demo_treasury',
+  protocolFeeBps: 1000,
+  totalPooledDcc: 1_250_000_00000000n,   // 1,250,000 DCC
+  totalShares: 1_200_000_00000000n,      // 1,200,000 stDCC
+  totalLeasedDcc: 1_100_000_00000000n,   // 1,100,000 DCC
+  totalLiquidDcc: 150_000_00000000n,     // 150,000 DCC
+  totalClaimableDcc: 5_000_00000000n,    // 5,000 DCC
+  totalPendingWithdrawDcc: 12_500_00000000n, // 12,500 DCC
+  totalProtocolFeesDcc: 3_750_00000000n, // 3,750 DCC
+  validatorCount: 3,
+  withdrawNonce: 42,
+  lastRewardSyncHeight: 2_847_100,
+  lastRewardSyncTs: Date.now() - 120_000,
+  minDepositDcc: 100000000n,             // 1 DCC
+  minWithdrawShares: 1000000n,           // 0.01 stDCC
+  exchangeRate: 104166666n, // ~1.0417 DCC per stDCC (1,250,000/1,200,000)
+};
+
+const IS_DEMO = !DAPP_ADDRESS;
 
 // =============================================================================
 // useWallet
@@ -69,6 +97,13 @@ export function useProtocolState(pollIntervalMs: number = 15_000) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    // Demo mode: return mock state when no dApp is deployed
+    if (IS_DEMO) {
+      setState(DEMO_PROTOCOL_STATE);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     try {
       const reader = getReader();
       const s = await reader.getProtocolState();
@@ -100,7 +135,7 @@ export function useUserState(address: string | undefined) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!address) {
+    if (!address || IS_DEMO) {
       setUserState(null);
       return;
     }
@@ -134,7 +169,7 @@ export function useWithdrawalRequests(address: string | undefined) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!address) {
+    if (!address || IS_DEMO) {
       setRequests([]);
       return;
     }
@@ -167,7 +202,7 @@ export function useDccBalance(address: string | undefined) {
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!address) {
+    if (!address || IS_DEMO) {
       setBalance(0n);
       return;
     }

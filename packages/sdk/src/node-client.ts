@@ -16,7 +16,7 @@ export class NodeClient {
   async getDataEntries(address: string): Promise<DataEntry[]> {
     const resp = await fetch(`${this.baseUrl}/addresses/data/${address}`);
     if (!resp.ok) throw new Error(`Node API error: ${resp.status} ${resp.statusText}`);
-    return resp.json();
+    return resp.json() as Promise<DataEntry[]>;
   }
 
   /** Fetch a single data entry by key */
@@ -24,7 +24,7 @@ export class NodeClient {
     const resp = await fetch(`${this.baseUrl}/addresses/data/${address}/${encodeURIComponent(key)}`);
     if (resp.status === 404) return null;
     if (!resp.ok) throw new Error(`Node API error: ${resp.status} ${resp.statusText}`);
-    return resp.json();
+    return resp.json() as Promise<DataEntry | null>;
   }
 
   /** Fetch multiple data entries by key pattern (regex) */
@@ -33,7 +33,7 @@ export class NodeClient {
       `${this.baseUrl}/addresses/data/${address}?matches=${encodeURIComponent(pattern)}`
     );
     if (!resp.ok) throw new Error(`Node API error: ${resp.status} ${resp.statusText}`);
-    return resp.json();
+    return resp.json() as Promise<DataEntry[]>;
   }
 
   // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ export class NodeClient {
   async getDccBalance(address: string): Promise<{ available: bigint; regular: bigint; effective: bigint }> {
     const resp = await fetch(`${this.baseUrl}/addresses/balance/details/${address}`);
     if (!resp.ok) throw new Error(`Node API error: ${resp.status}`);
-    const data = await resp.json();
+    const data = (await resp.json()) as { available: number; regular: number; effective: number };
     return {
       available: BigInt(data.available),
       regular: BigInt(data.regular),
@@ -56,7 +56,7 @@ export class NodeClient {
   async getAssetBalance(address: string, assetId: string): Promise<bigint> {
     const resp = await fetch(`${this.baseUrl}/assets/balance/${address}/${assetId}`);
     if (!resp.ok) throw new Error(`Node API error: ${resp.status}`);
-    const data = await resp.json();
+    const data = (await resp.json()) as { balance: number };
     return BigInt(data.balance);
   }
 
@@ -68,7 +68,7 @@ export class NodeClient {
   async getHeight(): Promise<number> {
     const resp = await fetch(`${this.baseUrl}/blocks/height`);
     if (!resp.ok) throw new Error(`Node API error: ${resp.status}`);
-    const data = await resp.json();
+    const data = (await resp.json()) as { height: number };
     return data.height;
   }
 
@@ -116,7 +116,7 @@ export class NodeClient {
   async getTxsByAddress(address: string, limit: number = 100): Promise<unknown[]> {
     const resp = await fetch(`${this.baseUrl}/transactions/address/${address}/limit/${limit}`);
     if (!resp.ok) throw new Error(`Node API error: ${resp.status}`);
-    const data = await resp.json();
+    const data = (await resp.json()) as unknown[][];
     return data[0] || [];
   }
 }
