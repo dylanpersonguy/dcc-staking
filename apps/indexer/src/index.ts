@@ -7,11 +7,13 @@ dotenv.config();
 
 import express from 'express';
 import { Pool } from 'pg';
+import swaggerUi from 'swagger-ui-express';
 import { ProtocolReader } from '@dcc-staking/sdk';
 import { migrate } from './db/migrate';
 import { Db } from './db/db';
 import { IndexerWorker } from './worker';
 import { createRouter } from './routes';
+import { openApiSpec } from './openapi';
 
 async function main() {
   const nodeUrl = process.env.DCC_NODE_URL || 'https://mainnet-node.decentralchain.io';
@@ -50,8 +52,12 @@ async function main() {
 
   app.use('/api', createRouter(db));
 
+  // Swagger docs
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));
+
   app.listen(port, () => {
     console.log(`[indexer] HTTP server listening on port ${port}`);
+    console.log(`[indexer] Swagger docs: http://localhost:${port}/docs`);
     console.log(`[indexer] Watching dApp: ${dAppAddress}`);
     console.log(`[indexer] Node: ${nodeUrl}`);
   });
