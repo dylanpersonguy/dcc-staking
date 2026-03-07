@@ -47,10 +47,11 @@ async function main() {
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     next();
   });
 
-  app.use('/api', createRouter(db));
+  app.use('/api', createRouter(db, reader));
 
   // Swagger docs
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));

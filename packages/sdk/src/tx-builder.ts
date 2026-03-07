@@ -191,6 +191,30 @@ export class TxBuilder {
       { type: 'integer', value: amount },
     ], this.config.chainId);
   }
+
+  buildTransferAdminTx(newAdmin: string): InvokeScriptParams {
+    return buildInvoke(this.config.dAppAddress, 'transferAdmin', [
+      { type: 'string', value: newAdmin },
+    ], this.config.chainId);
+  }
+
+  buildSetGuardianTx(address: string): InvokeScriptParams {
+    return buildInvoke(this.config.dAppAddress, 'setGuardian', [
+      { type: 'string', value: address },
+    ], this.config.chainId);
+  }
+
+  buildSetMinDepositTx(amount: number): InvokeScriptParams {
+    return buildInvoke(this.config.dAppAddress, 'setMinDeposit', [
+      { type: 'integer', value: amount },
+    ], this.config.chainId);
+  }
+
+  buildSetMinWithdrawSharesTx(amount: number): InvokeScriptParams {
+    return buildInvoke(this.config.dAppAddress, 'setMinWithdrawShares', [
+      { type: 'integer', value: amount },
+    ], this.config.chainId);
+  }
 }
 
 // =============================================================================
