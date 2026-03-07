@@ -70,7 +70,7 @@ export function parseProtocolDataEntries(entries: DataEntry[]) {
         shares: BigInt(shares),
       });
     } else if (entry.key.startsWith('evt_withdraw_req:')) {
-      const [, , heightStr, txId] = entry.key.split(':');
+      const [, heightStr, txId] = entry.key.split(':');
       const [address, requestId, shares, dccEstimate] = val.split(',');
       withdrawRequests.push({
         height: parseInt(heightStr, 10),
@@ -81,7 +81,7 @@ export function parseProtocolDataEntries(entries: DataEntry[]) {
         dccEstimate: BigInt(dccEstimate),
       });
     } else if (entry.key.startsWith('evt_withdraw_fin:')) {
-      const [, , heightStr, txId] = entry.key.split(':');
+      const [, heightStr, txId] = entry.key.split(':');
       const [requestId, dccFinal] = val.split(',');
       withdrawFinalizations.push({
         height: parseInt(heightStr, 10),
@@ -90,7 +90,7 @@ export function parseProtocolDataEntries(entries: DataEntry[]) {
         dccFinal: BigInt(dccFinal),
       });
     } else if (entry.key.startsWith('evt_withdraw_claim:')) {
-      const [, , heightStr, txId] = entry.key.split(':');
+      const [, heightStr, txId] = entry.key.split(':');
       const [address, requestId, dccFinal] = val.split(',');
       withdrawClaims.push({
         height: parseInt(heightStr, 10),
@@ -100,7 +100,7 @@ export function parseProtocolDataEntries(entries: DataEntry[]) {
         dccFinal: BigInt(dccFinal),
       });
     } else if (entry.key.startsWith('evt_reward_sync:')) {
-      const [, , heightStr, txId] = entry.key.split(':');
+      const [, heightStr, txId] = entry.key.split(':');
       const [rewardAmount, feeAmount, netReward] = val.split(',');
       rewardSyncs.push({
         height: parseInt(heightStr, 10),
